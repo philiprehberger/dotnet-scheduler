@@ -90,6 +90,12 @@ var matches = cron.Matches(DateTimeOffset.UtcNow);
 | `StartAsync(CancellationToken)` | Start the scheduler |
 | `StopAsync(CancellationToken)` | Stop gracefully |
 
+## Development
+
+```bash
+dotnet build src/Philiprehberger.Scheduler.csproj --configuration Release
+```
+
 ## License
 
 MIT
