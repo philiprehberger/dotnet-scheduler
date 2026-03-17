@@ -6,7 +6,7 @@
 
 Lightweight in-process job scheduler with cron expressions — no external infrastructure required.
 
-## Install
+## Installation
 
 ```bash
 dotnet add package Philiprehberger.Scheduler
