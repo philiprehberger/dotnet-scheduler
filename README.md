@@ -3,6 +3,7 @@
 [![CI](https://github.com/philiprehberger/dotnet-scheduler/actions/workflows/ci.yml/badge.svg)](https://github.com/philiprehberger/dotnet-scheduler/actions/workflows/ci.yml)
 [![NuGet](https://img.shields.io/nuget/v/Philiprehberger.Scheduler.svg)](https://www.nuget.org/packages/Philiprehberger.Scheduler)
 [![License](https://img.shields.io/github/license/philiprehberger/dotnet-scheduler)](LICENSE)
+[![Sponsor](https://img.shields.io/badge/sponsor-GitHub%20Sponsors-ec6cb9)](https://github.com/sponsors/philiprehberger)
 
 Lightweight in-process job scheduler with cron expressions — no external infrastructure required.
 
