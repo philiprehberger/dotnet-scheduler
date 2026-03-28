@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -6,12 +7,14 @@ namespace Philiprehberger.Scheduler;
 
 /// <summary>
 /// A hosted service that runs registered jobs on their cron schedules.
-/// Supports overlap prevention and graceful shutdown.
+/// Supports overlap prevention, timezone-aware scheduling, one-time jobs,
+/// job execution history, event callbacks, and graceful shutdown.
 /// </summary>
 public sealed class CronScheduler : IHostedService, IDisposable
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly SchedulerOptions _options;
+    private readonly IJobHistory _jobHistory;
     private readonly ConcurrentDictionary<string, bool> _runningJobs = new();
     private CancellationTokenSource? _cts;
     private Task? _executingTask;
@@ -21,10 +24,12 @@ public sealed class CronScheduler : IHostedService, IDisposable
     /// </summary>
     /// <param name="serviceProvider">The service provider used to resolve job instances.</param>
     /// <param name="options">The scheduler options containing registered jobs.</param>
-    public CronScheduler(IServiceProvider serviceProvider, SchedulerOptions options)
+    /// <param name="jobHistory">The job history tracker for recording execution results.</param>
+    public CronScheduler(IServiceProvider serviceProvider, SchedulerOptions options, IJobHistory jobHistory)
     {
         _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
         _options = options ?? throw new ArgumentNullException(nameof(options));
+        _jobHistory = jobHistory ?? throw new ArgumentNullException(nameof(jobHistory));
     }
 
     /// <inheritdoc />
@@ -80,12 +85,15 @@ public sealed class CronScheduler : IHostedService, IDisposable
 
             var checkTime = DateTimeOffset.UtcNow;
 
+            // Process recurring cron jobs
             foreach (var registration in _options.Registrations)
             {
                 if (ct.IsCancellationRequested)
                     break;
 
-                if (!registration.Cron.Matches(checkTime))
+                var evalTime = ConvertToTimeZone(checkTime, registration.TimeZone);
+
+                if (!registration.Cron.Matches(evalTime))
                     continue;
 
                 var jobKey = registration.Name;
@@ -95,11 +103,24 @@ public sealed class CronScheduler : IHostedService, IDisposable
 
                 _ = Task.Run(async () =>
                 {
+                    var sw = Stopwatch.StartNew();
+                    _options.OnJobStarted?.Invoke(jobKey);
+
                     try
                     {
                         using var scope = _serviceProvider.CreateScope();
                         var job = (IScheduledJob)scope.ServiceProvider.GetRequiredService(registration.JobType);
                         await job.ExecuteAsync(ct);
+
+                        sw.Stop();
+                        _options.OnJobCompleted?.Invoke(jobKey, sw.Elapsed);
+                        _jobHistory.Record(new JobExecutionRecord(jobKey, checkTime, sw.Elapsed, true, null));
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        sw.Stop();
+                        _options.OnJobFailed?.Invoke(jobKey, ex);
+                        _jobHistory.Record(new JobExecutionRecord(jobKey, checkTime, sw.Elapsed, false, ex.Message));
                     }
                     finally
                     {
@@ -110,6 +131,56 @@ public sealed class CronScheduler : IHostedService, IDisposable
                     }
                 }, ct);
             }
+
+            // Process one-time jobs
+            foreach (var oneTime in _options.OneTimeJobs)
+            {
+                if (ct.IsCancellationRequested)
+                    break;
+
+                if (oneTime.Executed)
+                    continue;
+
+                if (checkTime >= oneTime.RunAt)
+                {
+                    oneTime.Executed = true;
+
+                    _ = Task.Run(async () =>
+                    {
+                        var sw = Stopwatch.StartNew();
+                        _options.OnJobStarted?.Invoke(oneTime.Name);
+
+                        try
+                        {
+                            await oneTime.Action(ct);
+
+                            sw.Stop();
+                            _options.OnJobCompleted?.Invoke(oneTime.Name, sw.Elapsed);
+                            _jobHistory.Record(new JobExecutionRecord(oneTime.Name, checkTime, sw.Elapsed, true, null));
+                        }
+                        catch (Exception ex) when (ex is not OperationCanceledException)
+                        {
+                            sw.Stop();
+                            _options.OnJobFailed?.Invoke(oneTime.Name, ex);
+                            _jobHistory.Record(new JobExecutionRecord(oneTime.Name, checkTime, sw.Elapsed, false, ex.Message));
+                        }
+                    }, ct);
+                }
+            }
         }
+    }
+
+    /// <summary>
+    /// Converts a UTC time to the specified timezone for cron evaluation.
+    /// Returns the original time if no timezone is specified.
+    /// </summary>
+    private static DateTimeOffset ConvertToTimeZone(DateTimeOffset utcTime, TimeZoneInfo? timeZone)
+    {
+        if (timeZone is null)
+        {
+            return utcTime;
+        }
+
+        return TimeZoneInfo.ConvertTime(utcTime, timeZone);
     }
 }

@@ -2,10 +2,14 @@
 
 [![CI](https://github.com/philiprehberger/dotnet-scheduler/actions/workflows/ci.yml/badge.svg)](https://github.com/philiprehberger/dotnet-scheduler/actions/workflows/ci.yml)
 [![NuGet](https://img.shields.io/nuget/v/Philiprehberger.Scheduler.svg)](https://www.nuget.org/packages/Philiprehberger.Scheduler)
+[![GitHub release](https://img.shields.io/github/v/release/philiprehberger/dotnet-scheduler)](https://github.com/philiprehberger/dotnet-scheduler/releases)
+[![Last updated](https://img.shields.io/github/last-commit/philiprehberger/dotnet-scheduler)](https://github.com/philiprehberger/dotnet-scheduler/commits/main)
 [![License](https://img.shields.io/github/license/philiprehberger/dotnet-scheduler)](LICENSE)
+[![Bug Reports](https://img.shields.io/github/issues/philiprehberger/dotnet-scheduler/bug)](https://github.com/philiprehberger/dotnet-scheduler/issues?q=is%3Aissue+is%3Aopen+label%3Abug)
+[![Feature Requests](https://img.shields.io/github/issues/philiprehberger/dotnet-scheduler/enhancement)](https://github.com/philiprehberger/dotnet-scheduler/issues?q=is%3Aissue+is%3Aopen+label%3Aenhancement)
 [![Sponsor](https://img.shields.io/badge/sponsor-GitHub%20Sponsors-ec6cb9)](https://github.com/sponsors/philiprehberger)
 
-Lightweight in-process job scheduler with cron expressions — no external infrastructure required.
+Lightweight in-process job scheduler with cron expressions, timezone support, execution history, and lifecycle callbacks.
 
 ## Installation
 
@@ -33,6 +37,8 @@ public class CleanupJob : IScheduledJob
 ### Register with DI
 
 ```csharp
+using Philiprehberger.Scheduler;
+
 builder.Services.AddScheduler(options =>
 {
     options.AddJob<CleanupJob>("*/5 * * * *"); // every 5 minutes
@@ -42,19 +48,85 @@ builder.Services.AddScheduler(options =>
 ### Using Attributes
 
 ```csharp
-[ScheduledJob("cleanup", "*/5 * * * *")]
+using Philiprehberger.Scheduler;
+
+[ScheduledJob("cleanup", "*/5 * * * *", TimeZone = "America/New_York")]
 public class CleanupJob : IScheduledJob
 {
     public async Task ExecuteAsync(CancellationToken ct)
     {
-        // ...
+        // Runs every 5 minutes in Eastern time
+        await Task.CompletedTask;
     }
 }
+```
+
+### Timezone-Aware Scheduling
+
+```csharp
+using Philiprehberger.Scheduler;
+
+builder.Services.AddScheduler(options =>
+{
+    // Evaluate cron in a specific timezone instead of UTC
+    options.AddJob<ReportJob>("0 9 * * 1-5", timeZone: "Europe/London");
+});
+```
+
+### One-Time Scheduled Jobs
+
+```csharp
+using Philiprehberger.Scheduler;
+
+builder.Services.AddScheduler(options =>
+{
+    options.ScheduleOnce("send-welcome", async ct =>
+    {
+        // Runs once at the specified time, then auto-removes
+        await SendWelcomeEmailAsync(ct);
+    }, DateTimeOffset.UtcNow.AddHours(1));
+});
+```
+
+### Job Execution History
+
+```csharp
+using Philiprehberger.Scheduler;
+
+// Inject IJobHistory to query past executions
+app.MapGet("/jobs/history", (IJobHistory history) =>
+{
+    var all = history.GetAll();
+    var cleanup = history.GetHistory("cleanup");
+    return Results.Ok(new { all, cleanup });
+});
+```
+
+### Job Event Callbacks
+
+```csharp
+using Philiprehberger.Scheduler;
+
+builder.Services.AddScheduler(options =>
+{
+    options.AddJob<CleanupJob>("*/5 * * * *");
+
+    options.OnJobStarted = name =>
+        Console.WriteLine($"Job started: {name}");
+
+    options.OnJobCompleted = (name, duration) =>
+        Console.WriteLine($"Job completed: {name} in {duration.TotalMilliseconds}ms");
+
+    options.OnJobFailed = (name, ex) =>
+        Console.WriteLine($"Job failed: {name} - {ex.Message}");
+});
 ```
 
 ### Cron Expressions
 
 ```csharp
+using Philiprehberger.Scheduler;
+
 var cron = CronExpression.Parse("*/5 * * * *");
 var next = cron.GetNextOccurrence(DateTimeOffset.UtcNow);
 var matches = cron.Matches(DateTimeOffset.UtcNow);
@@ -78,11 +150,44 @@ var matches = cron.Matches(DateTimeOffset.UtcNow);
 
 ### `ScheduledJobAttribute`
 
-| Property | Description |
-|----------|-------------|
-| `Name` | Job name |
-| `CronExpression` | Cron schedule |
-| `PreventOverlap` | Skip if previous run is still executing (default: true) |
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `Name` | `string` | — | Job name |
+| `CronExpression` | `string` | — | Cron schedule |
+| `PreventOverlap` | `bool` | `true` | Skip if previous run is still executing |
+| `TimeZone` | `string?` | `null` | IANA timezone ID for cron evaluation |
+
+### `SchedulerOptions`
+
+| Method | Description |
+|--------|-------------|
+| `AddJob<TJob>(string cronExpression)` | Register a recurring job with a cron schedule |
+| `AddJob<TJob>(string cronExpression, string? timeZone)` | Register a recurring job with timezone |
+| `ScheduleOnce(string name, Func<CancellationToken, Task> action, DateTimeOffset runAt)` | Schedule a one-time job |
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `OnJobStarted` | `Action<string>?` | Callback when a job starts |
+| `OnJobCompleted` | `Action<string, TimeSpan>?` | Callback when a job completes |
+| `OnJobFailed` | `Action<string, Exception>?` | Callback when a job fails |
+
+### `IJobHistory`
+
+| Method | Description |
+|--------|-------------|
+| `GetHistory(string jobName)` | Get execution records for a specific job |
+| `GetAll()` | Get all execution records across all jobs |
+| `Record(JobExecutionRecord record)` | Store an execution record |
+
+### `JobExecutionRecord`
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `JobName` | `string` | Name of the executed job |
+| `StartTime` | `DateTimeOffset` | When the execution started |
+| `Duration` | `TimeSpan` | How long the execution took |
+| `Success` | `bool` | Whether the job succeeded |
+| `ErrorMessage` | `string?` | Error message if failed |
 
 ### `CronScheduler`
 
@@ -97,6 +202,13 @@ var matches = cron.Matches(DateTimeOffset.UtcNow);
 dotnet build src/Philiprehberger.Scheduler.csproj --configuration Release
 ```
 
+## Support
+
+If you find this package useful, consider giving it a star on GitHub — it helps motivate continued maintenance and development.
+
+[![LinkedIn](https://img.shields.io/badge/Philip%20Rehberger-LinkedIn-0A66C2?logo=linkedin)](https://www.linkedin.com/in/philiprehberger)
+[![More packages](https://img.shields.io/badge/more-open%20source%20packages-blue)](https://philiprehberger.com/open-source-packages)
+
 ## License
 
-MIT
+[MIT](LICENSE)

@@ -32,4 +32,12 @@ public sealed class ScheduledJobAttribute : Attribute
     /// Defaults to <c>true</c>.
     /// </summary>
     public bool PreventOverlap { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets the IANA timezone identifier for cron evaluation.
+    /// When set, the cron expression is evaluated in the specified timezone instead of UTC.
+    /// Defaults to <c>null</c> (UTC).
+    /// </summary>
+    /// <example>"America/New_York", "Europe/London", "Asia/Tokyo"</example>
+    public string? TimeZone { get; set; }
 }

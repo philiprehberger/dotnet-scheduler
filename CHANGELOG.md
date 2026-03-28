@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.0 (2026-03-28)
+
+- Add timezone-aware scheduling via `TimeZone` property on `ScheduledJobAttribute` and `AddJob` overload
+- Add job execution history with `IJobHistory`, `JobExecutionRecord`, and `InMemoryJobHistory`
+- Add one-time scheduled jobs via `ScheduleOnce` method on `SchedulerOptions`
+- Add job event callbacks: `OnJobStarted`, `OnJobCompleted`, `OnJobFailed` on `SchedulerOptions`
+- Add unit test project with xUnit
+- Add GitHub issue templates, dependabot config, and PR template
+- Add missing README badges (GitHub release, Last updated, Bug Reports, Feature Requests)
+- Add Support section to README
+- Add test step to CI workflow
+- Update description to reflect new features
+
 ## 0.1.6 (2026-03-24)
 
 - Sync .csproj description with README
