@@ -7,7 +7,7 @@
     <LangVersion>latest</LangVersion>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <PackageId>Philiprehberger.Scheduler</PackageId>
-    <Version>0.2.0</Version>
+    <Version>0.2.1</Version>
     <Authors>Philip Rehberger</Authors>
     <Description>Lightweight in-process job scheduler with cron expressions, timezone support, execution history, and lifecycle callbacks.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
